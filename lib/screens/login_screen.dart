@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api/odoo_api.dart';
-import 'profile_screen.dart';
+import 'home_screen.dart'; // Changed from profile_screen.dart to home_screen.dart
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -32,10 +32,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (employeeData != null) {
+        // Navigate to HomeScreen instead of ProfileScreen
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => ProfileScreen(employee: employeeData),
+            builder: (_) => HomeScreen(employee: employeeData), // Pass employee data to HomeScreen
           ),
         );
       } else {
