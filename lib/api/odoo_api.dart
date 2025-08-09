@@ -19,9 +19,11 @@ class OdooService {
       "id": 1
     };
 
-    var response = await http.post(url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body));
+    var response = await http.post(
+      url,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(body),
+    );
 
     var data = jsonDecode(response.body);
 
@@ -35,8 +37,7 @@ class OdooService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> getEmployeeData(
-      int uid, String password) async {
+  Future<Map<String, dynamic>?> getEmployeeData(int uid, String password) async {
     var url = Uri.parse('$baseUrl/jsonrpc');
 
     var body = {
@@ -55,7 +56,13 @@ class OdooService {
             [["user_id", "=", uid]]
           ],
           {
-            "fields": ["name", "work_email", "job_title", "work_phone"],
+            "fields": [
+              "name",
+              "work_email",
+              "job_title",
+              "work_phone",
+              "image_1920"
+            ],
             "limit": 1
           }
         ]
@@ -63,14 +70,23 @@ class OdooService {
       "id": 2
     };
 
-    var response = await http.post(url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(body));
+    var response = await http.post(
+      url,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(body),
+    );
 
     var data = jsonDecode(response.body);
 
     if (data["result"].isNotEmpty) {
-      return data["result"][0];
+      var emp = data["result"][0];
+
+      // ✅ Ensure image_1920 is String or null
+      if (emp["image_1920"] is bool) {
+        emp["image_1920"] = null;
+      }
+
+      return emp;
     }
     return null;
   }
