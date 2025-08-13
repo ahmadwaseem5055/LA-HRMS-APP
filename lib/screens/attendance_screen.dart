@@ -1,4 +1,10 @@
+// NOTE: Add this dependency to your pubspec.yaml:
+// dependencies:
+//   shared_preferences: ^2.2.2
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api/attendance_api.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -11,44 +17,232 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   bool isCheckedIn = false;
-  String checkInTime = '';
-  String checkOutTime = '';
+  String checkInTime = '--:--';
+  String checkOutTime = '--:--';
+  bool isLoading = false;
+
+  final AttendanceApi attendanceApi = AttendanceApi();
+  int? currentAttendanceId;
 
   @override
   void initState() {
     super.initState();
-    // Initialize with sample data
-    isCheckedIn = true;
-    checkInTime = '09:00 AM';
-    checkOutTime = '--:--';
+    _initializeAttendanceState();
   }
 
-  void _toggleCheckIn() {
-    setState(() {
-      if (!isCheckedIn) {
-        // Check in
-        isCheckedIn = true;
-        checkInTime = _getCurrentTime();
-        checkOutTime = '--:--';
+  Future<void> _initializeAttendanceState() async {
+    int? employeeId = _getEmployeeId();
+    if (employeeId == null) return;
+
+    await _loadLocalAttendanceState(employeeId);
+    await _syncWithApi(employeeId);
+  }
+
+  Future<void> _loadLocalAttendanceState(int employeeId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userKey = 'attendance_user_$employeeId';
+
+      final isLocalCheckedIn = prefs.getBool('${userKey}_isCheckedIn') ?? false;
+      final localCheckInTime = prefs.getString('${userKey}_checkInTime') ?? '--:--';
+      final localCheckOutTime = prefs.getString('${userKey}_checkOutTime') ?? '--:--';
+      final localAttendanceId = prefs.getInt('${userKey}_attendanceId');
+      final localDate = prefs.getString('${userKey}_date') ?? '';
+
+      final today = DateTime.now().toIso8601String().split('T')[0];
+
+      if (localDate == today) {
+        setState(() {
+          isCheckedIn = isLocalCheckedIn;
+          checkInTime = localCheckInTime;
+          checkOutTime = localCheckOutTime;
+          currentAttendanceId = localAttendanceId;
+        });
       } else {
-        // Check out
-        isCheckedIn = false;
-        checkOutTime = _getCurrentTime();
+        await _clearLocalAttendanceState(employeeId);
       }
+    } catch (e) {
+      debugPrint('Error loading local attendance state: $e');
+    }
+  }
+
+  Future<void> _saveLocalAttendanceState(int employeeId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userKey = 'attendance_user_$employeeId';
+      final today = DateTime.now().toIso8601String().split('T')[0];
+
+      await prefs.setBool('${userKey}_isCheckedIn', isCheckedIn);
+      await prefs.setString('${userKey}_checkInTime', checkInTime);
+      await prefs.setString('${userKey}_checkOutTime', checkOutTime);
+      await prefs.setString('${userKey}_date', today);
+
+      if (currentAttendanceId != null) {
+        await prefs.setInt('${userKey}_attendanceId', currentAttendanceId!);
+      }
+    } catch (e) {
+      debugPrint('Error saving local attendance state: $e');
+    }
+  }
+
+  Future<void> _clearLocalAttendanceState(int employeeId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userKey = 'attendance_user_$employeeId';
+
+      await prefs.remove('${userKey}_isCheckedIn');
+      await prefs.remove('${userKey}_checkInTime');
+      await prefs.remove('${userKey}_checkOutTime');
+      await prefs.remove('${userKey}_attendanceId');
+      await prefs.remove('${userKey}_date');
+
+      setState(() {
+        isCheckedIn = false;
+        checkInTime = '--:--';
+        checkOutTime = '--:--';
+        currentAttendanceId = null;
+      });
+    } catch (e) {
+      debugPrint('Error clearing local attendance state: $e');
+    }
+  }
+
+  Future<void> _syncWithApi(int employeeId) async {
+    try {
+      final todayResult = await attendanceApi.getTodayAttendance(employeeId);
+
+      if (todayResult != null && todayResult['success'] == true) {
+        final attendanceData = todayResult['data'];
+
+        if (attendanceData != null) {
+          final apiCheckInTime = attendanceData['check_in'] ?? attendanceData['check_in_time'];
+          final apiCheckOutTime = attendanceData['check_out'] ?? attendanceData['check_out_time'];
+          final apiAttendanceId = attendanceData['attendance_id'] ?? attendanceData['id'];
+
+          bool apiIsCheckedIn = apiCheckOutTime == null;
+          bool needsUpdate = false;
+
+          if (apiCheckInTime != null && checkInTime == '--:--') {
+            setState(() {
+              checkInTime = _formatTimeFromApi(apiCheckInTime);
+              isCheckedIn = apiIsCheckedIn;
+              currentAttendanceId = apiAttendanceId;
+            });
+            needsUpdate = true;
+          }
+
+          if (apiCheckOutTime != null && checkOutTime == '--:--') {
+            setState(() {
+              checkOutTime = _formatTimeFromApi(apiCheckOutTime);
+              isCheckedIn = false;
+            });
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            await _saveLocalAttendanceState(employeeId);
+          }
+        }
+      } else {
+        // keep local
+      }
+    } catch (e) {
+      debugPrint('Error syncing with API: $e');
+    }
+  }
+
+  int? _getEmployeeId() {
+    if (widget.userData['employee_id'] != null) {
+      return int.tryParse(widget.userData['employee_id'].toString());
+    } else if (widget.userData['id'] != null) {
+      return int.tryParse(widget.userData['id'].toString());
+    } else if (widget.userData['user_id'] != null) {
+      return int.tryParse(widget.userData['user_id'].toString());
+    } else if (widget.userData['data'] != null && widget.userData['data']['employee_id'] != null) {
+      return int.tryParse(widget.userData['data']['employee_id'].toString());
+    } else if (widget.userData['data'] != null && widget.userData['data']['id'] != null) {
+      return int.tryParse(widget.userData['data']['id'].toString());
+    }
+    return null;
+  }
+
+  void _toggleCheckIn() async {
+    int? employeeId = _getEmployeeId();
+    if (employeeId == null) {
+      _showErrorDialog('Employee ID not found. Please login again.');
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
     });
-    
-    _showCheckInOutDialog();
+
+    try {
+      Map<String, dynamic>? result;
+
+      if (!isCheckedIn && checkOutTime == '--:--') {
+        // Check in
+        result = await attendanceApi.checkIn(employeeId);
+
+        if (result != null && result['status'] == 'success') {
+          currentAttendanceId = result['id'];
+          String formattedTime = _formatTimeFromApi(result['check_in_time']);
+
+          setState(() {
+            isCheckedIn = true;
+            checkInTime = formattedTime;
+            checkOutTime = '--:--';
+          });
+
+          await _saveLocalAttendanceState(employeeId);
+          _showSuccessDialog('Checked In Successfully!', 'You have successfully checked in at $checkInTime');
+        } else {
+          String errorMessage = result?['message'] ?? 'Failed to check in. Please try again.';
+          _showErrorDialog(errorMessage);
+        }
+      } else if (isCheckedIn && checkOutTime == '--:--') {
+        // Check out
+        result = await attendanceApi.checkOut(employeeId);
+
+        if (result != null && result['status'] == 'success') {
+          String formattedTime = _formatTimeFromApi(result['check_out_time']);
+
+          setState(() {
+            checkOutTime = formattedTime;
+            isCheckedIn = false;
+          });
+
+          await _saveLocalAttendanceState(employeeId);
+          _showSuccessDialog('Checked Out Successfully!', 'You have successfully checked out at $checkOutTime');
+        } else {
+          String errorMessage = result?['message'] ?? 'Failed to check out. Please try again.';
+          _showErrorDialog(errorMessage);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error during check in/out: $e');
+      _showErrorDialog('Network error. Please check your connection and try again.');
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
-  String _getCurrentTime() {
-    final now = DateTime.now();
-    final hour = now.hour > 12 ? now.hour - 12 : now.hour;
-    final minute = now.minute.toString().padLeft(2, '0');
-    final period = now.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $period';
+  String _formatTimeFromApi(String apiTime) {
+    try {
+      DateTime dateTime = DateTime.parse(apiTime).toLocal();
+      final hour = dateTime.hour > 12 ? dateTime.hour - 12 : (dateTime.hour == 0 ? 12 : dateTime.hour);
+      final minute = dateTime.minute.toString().padLeft(2, '0');
+      final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:$minute $period';
+    } catch (e) {
+      debugPrint('Error formatting API time: $e');
+      return apiTime.length > 19 ? apiTime.substring(11, 19) : apiTime;
+    }
   }
 
-  void _showCheckInOutDialog() {
+  void _showSuccessDialog(String title, String message) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -56,12 +250,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),
-          title: Text(isCheckedIn ? 'Checked In Successfully!' : 'Checked Out Successfully!'),
-          content: Text(
-            isCheckedIn 
-                ? 'You have successfully checked in at $checkInTime'
-                : 'You have successfully checked out at $checkOutTime'
-          ),
+          title: Text(title),
+          content: Text(message),
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -80,23 +270,64 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          title: const Text('Error'),
+          content: Text(message),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    String buttonText;
+    bool buttonEnabled = !isLoading;
+
+    if (isCheckedIn && checkOutTime == '--:--') {
+      buttonText = 'Check Out';
+    } else if (checkOutTime != '--:--') {
+      buttonText = 'Completed for Today';
+      buttonEnabled = false;
+    } else {
+      buttonText = 'Check In';
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
           const SizedBox(height: 20),
-          
           // Today's Status Card
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(25),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: isCheckedIn 
-                    ? [const Color(0xFF56ab2f), const Color(0xFFa8e6cf)]
-                    : [const Color(0xFFff9a9e), const Color(0xFFfecfef)],
+                colors: checkOutTime != '--:--'
+                    ? [const Color(0xFF4CAF50), const Color(0xFF8BC34A)] // Completed
+                    : (isCheckedIn
+                        ? [const Color(0xFF56ab2f), const Color(0xFFa8e6cf)] // Checked In
+                        : [const Color(0xFFff9a9e), const Color(0xFFfecfef)]), // Not checked in
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
@@ -111,13 +342,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             child: Column(
               children: [
                 Icon(
-                  isCheckedIn ? Icons.work : Icons.home,
+                  checkOutTime != '--:--'
+                      ? Icons.check_circle
+                      : (isCheckedIn ? Icons.work : Icons.home),
                   size: 50,
                   color: Colors.white,
                 ),
                 const SizedBox(height: 15),
                 Text(
-                  isCheckedIn ? "You're Checked In" : "You're Checked Out",
+                  checkOutTime != '--:--'
+                      ? "Day Completed"
+                      : (isCheckedIn ? "You're Checked In" : "You're Checked Out"),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -133,36 +368,41 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ],
                 ),
                 const SizedBox(height: 25),
-                
                 // Check In/Out Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: _toggleCheckIn,
+                    onPressed: buttonEnabled ? _toggleCheckIn : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: isCheckedIn ? Colors.red : Colors.green,
+                      backgroundColor: buttonEnabled ? Colors.white : Colors.grey[300],
+                      foregroundColor: checkOutTime != '--:--'
+                          ? Colors.grey
+                          : (isCheckedIn ? Colors.red : Colors.green),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(25),
                       ),
-                      elevation: 5,
+                      elevation: buttonEnabled ? 5 : 0,
                     ),
-                    child: Text(
-                      isCheckedIn ? 'Check Out' : 'Check In',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            buttonText,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ],
             ),
           ),
-          
           const SizedBox(height: 30),
-          
           // Weekly Summary Card
           Container(
             width: double.infinity,
@@ -202,9 +442,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ],
             ),
           ),
-          
           const SizedBox(height: 30),
-          
           // Attendance History
           Container(
             width: double.infinity,
@@ -233,7 +471,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ),
                 ),
                 const SizedBox(height: 15),
-                _buildAttendanceItem('Today', '09:00 AM - $checkOutTime', isCheckedIn ? Colors.orange : Colors.green),
+                _buildAttendanceItem(
+                  'Today',
+                  checkInTime != '--:--'
+                      ? (checkOutTime != '--:--'
+                          ? '$checkInTime - $checkOutTime'
+                          : '$checkInTime - In Progress')
+                      : 'Not Checked In',
+                  isCheckedIn
+                      ? (checkOutTime != '--:--' ? Colors.green : Colors.orange)
+                      : (checkOutTime != '--:--' ? Colors.green : Colors.red),
+                ),
                 _buildAttendanceItem('Yesterday', '08:45 AM - 05:30 PM', Colors.green),
                 _buildAttendanceItem('Dec 9, 2024', '09:15 AM - 05:45 PM', Colors.green),
                 _buildAttendanceItem('Dec 8, 2024', 'Weekend', Colors.grey),
@@ -306,6 +554,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  // ✅ This was missing before
   Widget _buildAttendanceItem(String date, String time, Color color) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
