@@ -15,7 +15,8 @@ class AttendanceScreen extends StatefulWidget {
   _AttendanceScreenState createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> {
+class _AttendanceScreenState extends State<AttendanceScreen> 
+    with SingleTickerProviderStateMixin {
   bool isCheckedIn = false;
   String checkInTime = '--:--';
   String checkOutTime = '--:--';
@@ -24,10 +25,61 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   final AttendanceApi attendanceApi = AttendanceApi();
   int? currentAttendanceId;
 
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
     _initializeAttendanceState();
+  }
+
+  void _initializeAnimations() {
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+    
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.elasticOut,
+      ),
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+    
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  // Helper method to get gradient colors consistent with profile
+  List<Color> _getGradientColors() {
+    String firstLetter = _getFirstLetter(widget.userData['employee_name']);
+    const gradients = [
+      [Color(0xFF667eea), Color(0xFF764ba2)],
+      
+    ];
+    
+    int index = firstLetter.codeUnitAt(0) % gradients.length;
+    return gradients[index];
+  }
+
+  String _getFirstLetter(String? name) {
+    if (name == null || name.isEmpty) return 'U';
+    return name.trim().split(' ').first[0].toUpperCase();
   }
 
   Future<void> _initializeAttendanceState() async {
@@ -267,9 +319,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  // UPDATED: Converts all API timestamps to Pakistan Time correctly
+  // UPDATED: Extract time from your API format "15-08-2025 02:20 PM"
   String _formatTimeFromApi(String apiTime) {
     try {
+      // Handle your API format: "15-08-2025 02:20 PM"
+      if (apiTime.contains(' ') && (apiTime.contains('AM') || apiTime.contains('PM'))) {
+        final parts = apiTime.split(' ');
+        if (parts.length >= 3) {
+          // Extract time and AM/PM parts
+          final timePart = parts[1]; // "02:20"
+          final periodPart = parts[2]; // "PM"
+          return '$timePart $periodPart';
+        }
+      }
+      
+      // Fallback: Try ISO format parsing (existing logic)
       DateTime dateTime = DateTime.parse(apiTime).toUtc().add(const Duration(hours: 5));
       int hour = dateTime.hour % 12;
       if (hour == 0) hour = 12;
@@ -278,34 +342,90 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       return '$hour:$minute $period';
     } catch (e) {
       debugPrint('Error formatting API time: $e');
-      if (apiTime.contains('T') && apiTime.length > 16) {
+      
+      // Final fallback: If it contains space, try to extract time part
+      if (apiTime.contains(' ')) {
         try {
-          return apiTime.substring(11, 16);
+          final parts = apiTime.split(' ');
+          // Look for time pattern (contains colon)
+          for (String part in parts) {
+            if (part.contains(':')) {
+              // Check if next part is AM/PM
+              int index = parts.indexOf(part);
+              if (index + 1 < parts.length && (parts[index + 1] == 'AM' || parts[index + 1] == 'PM')) {
+                return '${part} ${parts[index + 1]}';
+              }
+              return part; // Return just the time part
+            }
+          }
         } catch (e2) {
           debugPrint('Error extracting time part: $e2');
         }
       }
-      return apiTime;
+      
+      // Ultimate fallback
+      return apiTime.length > 10 ? apiTime.substring(0, 8) : apiTime;
     }
   }
 
   void _showSuccessDialog(String title, String message) {
+    List<Color> gradientColors = _getGradientColors();
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: Text(title),
-          content: Text(message),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF667eea),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 20,
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradientColors),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  color: Colors.white,
+                  size: 24,
+                ),
               ),
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              const SizedBox(width: 15),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              fontSize: 16,
+              color: Color(0xFF6B7280),
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: gradientColors),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
             ),
           ],
         );
@@ -318,18 +438,52 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: const Text('Error'),
-          content: Text(message),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 20,
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: const Icon(
+                  Icons.error_outline,
+                  color: Colors.red,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 15),
+              const Text(
+                'Error',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              fontSize: 16,
+              color: Color(0xFF6B7280),
+              height: 1.4,
+            ),
+          ),
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -339,6 +493,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    List<Color> gradientColors = _getGradientColors();
+    
     String buttonText;
     bool buttonEnabled = !isLoading;
 
@@ -351,178 +507,299 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       buttonText = 'Check In';
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(25),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: checkOutTime != '--:--'
-                    ? [const Color(0xFF4CAF50), const Color(0xFF8BC34A)]
-                    : (isCheckedIn
-                        ? [const Color(0xFF56ab2f), const Color(0xFFa8e6cf)]
-                        : [const Color(0xFFff9a9e), const Color(0xFFfecfef)]),
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: (isCheckedIn ? Colors.green : Colors.pink).withOpacity(0.3),
-                  spreadRadius: 2,
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  checkOutTime != '--:--'
-                      ? Icons.check_circle
-                      : (isCheckedIn ? Icons.work : Icons.home),
-                  size: 50,
-                  color: Colors.white,
-                ),
-                const SizedBox(height: 15),
-                Text(
-                  checkOutTime != '--:--'
-                      ? "Day Completed"
-                      : (isCheckedIn ? "You're Checked In" : "You're Checked Out"),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildTimeCard('Check In', checkInTime),
-                    _buildTimeCard('Check Out', checkOutTime),
-                  ],
-                ),
-                const SizedBox(height: 25),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: buttonEnabled ? _toggleCheckIn : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: buttonEnabled ? Colors.white : Colors.grey[300],
-                      foregroundColor: checkOutTime != '--:--'
-                          ? Colors.grey
-                          : (isCheckedIn ? Colors.red : Colors.green),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                      elevation: buttonEnabled ? 5 : 0,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.grey[50]!,
+            Colors.white,
+          ],
+        ),
+      ),
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+            
+            // Main Attendance Status Card
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: checkOutTime != '--:--'
+                          ? [const Color(0xFF10B981), const Color(0xFF059669)]
+                          : (isCheckedIn
+                              ? [const Color(0xFF3B82F6), const Color(0xFF1D4ED8)]
+                              : gradientColors),
                     ),
-                    child: isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(
-                            buttonText,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                    borderRadius: BorderRadius.circular(25),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (checkOutTime != '--:--'
+                                ? const Color(0xFF10B981)
+                                : (isCheckedIn ? const Color(0xFF3B82F6) : gradientColors[0]))
+                            .withOpacity(0.4),
+                        spreadRadius: 5,
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(30),
+                    child: Column(
+                      children: [
+                        // Status Icon with Animation
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(40),
+                          ),
+                          child: Icon(
+                            checkOutTime != '--:--'
+                                ? Icons.check_circle_rounded
+                                : (isCheckedIn ? Icons.access_time_filled_rounded : Icons.schedule_rounded),
+                            size: 40,
+                            color: Colors.white,
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 20),
+                        
+                        // Status Text
+                        Text(
+                          checkOutTime != '--:--'
+                              ? "Day Completed Successfully"
+                              : (isCheckedIn ? "Currently Working" : "Ready to Start"),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        Text(
+                          checkOutTime != '--:--'
+                              ? "Great job today!"
+                              : (isCheckedIn 
+                                  ? "You're checked in and ready to work" 
+                                  : "Tap the button below to check in"),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        const SizedBox(height: 30),
+                        
+                        // Current Date Display
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _getCurrentDate(),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
                             ),
                           ),
+                        ),
+                        
+                        const SizedBox(height: 20),
+                        
+                        // Time Display Cards
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildEnhancedTimeCard('Check In', checkInTime, Icons.login_rounded),
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: _buildEnhancedTimeCard('Check Out', checkOutTime, Icons.logout_rounded),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 30),
+                        
+                        // Action Button
+                        Container(
+                          width: double.infinity,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            gradient: buttonEnabled
+                                ? LinearGradient(
+                                    colors: [Colors.white, Colors.white.withOpacity(0.9)],
+                                  )
+                                : null,
+                            color: buttonEnabled ? null : Colors.white.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(30),
+                            boxShadow: buttonEnabled ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ] : null,
+                          ),
+                          child: ElevatedButton(
+                            onPressed: buttonEnabled ? _toggleCheckIn : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              foregroundColor: checkOutTime != '--:--'
+                                  ? Colors.grey[600]
+                                  : (isCheckedIn ? Colors.red[600] : gradientColors[0]),
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                            ),
+                            child: isLoading
+                                ? SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(gradientColors[0]),
+                                    ),
+                                  )
+                                                                  : Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          checkOutTime != '--:--'
+                                              ? Icons.check_circle_rounded
+                                              : (isCheckedIn ? Icons.logout_rounded : Icons.login_rounded),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            buttonText,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Recent Attendance Card
+            _buildAnimatedCard(
+              'Recent Attendance',
+              Column(
+                children: [
+                  _buildAttendanceItem(
+                    'Today',
+                    checkInTime != '--:--'
+                        ? (checkOutTime != '--:--'
+                            ? '$checkInTime - $checkOutTime'
+                            : '$checkInTime - In Progress')
+                        : 'Not Checked In',
+                    isCheckedIn
+                        ? (checkOutTime != '--:--' ? const Color(0xFF10B981) : const Color(0xFFF59E0B))
+                        : (checkOutTime != '--:--' ? const Color(0xFF10B981) : const Color(0xFFEF4444)),
+                    Icons.today_rounded,
+                  ),
+                  _buildAttendanceItem('Yesterday', '08:45 AM - 05:30 PM', const Color(0xFF10B981), Icons.check_circle_rounded),
+                  _buildAttendanceItem('Dec 9, 2024', '09:15 AM - 05:45 PM', const Color(0xFF10B981), Icons.check_circle_rounded),
+                  _buildAttendanceItem('Dec 8, 2024', 'Weekend', Colors.grey, Icons.weekend_rounded),
+                  _buildAttendanceItem('Dec 7, 2024', '08:30 AM - 05:15 PM', const Color(0xFF10B981), Icons.check_circle_rounded),
+                  _buildAttendanceItem('Dec 6, 2024', '09:45 AM - 06:00 PM', const Color(0xFFF59E0B), Icons.schedule_rounded),
+                ],
+              ),
+              0,
+              gradientColors,
+            ),
+            
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper method to get current date in a readable format
+  String _getCurrentDate() {
+    final now = DateTime.now().toUtc().add(const Duration(hours: 5));
+    final months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    return '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
+  }
+
+  Widget _buildEnhancedTimeCard(String label, String time, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            color: Colors.white.withOpacity(0.8),
+            size: 20,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 30),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
+          const SizedBox(height: 8),
+          Text(
+            time, // This now shows only time like "02:20 PM" instead of full date
+            style: const TextStyle(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
-                  spreadRadius: 2,
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'This Week Summary',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildSummaryItem('Days Present', '4', Colors.green),
-                    _buildSummaryItem('Hours Worked', '32', Colors.blue),
-                    _buildSummaryItem('On Time', '3', Colors.orange),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 30),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
-                  spreadRadius: 2,
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Recent Attendance',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 15),
-                _buildAttendanceItem(
-                  'Today',
-                  checkInTime != '--:--'
-                      ? (checkOutTime != '--:--'
-                          ? '$checkInTime - $checkOutTime'
-                          : '$checkInTime - In Progress')
-                      : 'Not Checked In',
-                  isCheckedIn
-                      ? (checkOutTime != '--:--' ? Colors.green : Colors.orange)
-                      : (checkOutTime != '--:--' ? Colors.green : Colors.red),
-                ),
-                _buildAttendanceItem('Yesterday', '08:45 AM - 05:30 PM', Colors.green),
-                _buildAttendanceItem('Dec 9, 2024', '09:15 AM - 05:45 PM', Colors.green),
-                _buildAttendanceItem('Dec 8, 2024', 'Weekend', Colors.grey),
-                _buildAttendanceItem('Dec 7, 2024', '08:30 AM - 05:15 PM', Colors.green),
-                _buildAttendanceItem('Dec 6, 2024', '09:45 AM - 06:00 PM', Colors.orange),
-              ],
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -530,108 +807,151 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Widget _buildTimeCard(String label, String time) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          time,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          child: Center(
-            child: Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+  Widget _buildAnimatedCard(String title, Widget content, int index, List<Color> gradientColors) {
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: Offset(0.0, 0.3 + (index * 0.1)),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Interval(
+              0.4 + (index * 0.2),
+              0.8 + (index * 0.1),
+              curve: Curves.easeOutBack,
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF666666),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                spreadRadius: 0,
+                blurRadius: 25,
+                offset: const Offset(0, 15),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(25),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: gradientColors),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.analytics_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1F2937),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                content,
+              ],
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildAttendanceItem(String date, String time, Color color) {
+  Widget _buildAttendanceItem(String date, String time, Color color, IconData icon) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.08), color.withOpacity(0.03)],
+        ),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: color.withOpacity(0.3),
+          color: color.withOpacity(0.2),
           width: 1,
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            date,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-              color: Color(0xFF333333),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: color.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 20,
             ),
           ),
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(4),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  date,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Color(0xFF1F2937),
+                    letterSpacing: 0.3,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                time,
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
+                const SizedBox(height: 4),
+                Text(
+                  time,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    letterSpacing: 0.2,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(4),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(0.4),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
           ),
         ],
       ),

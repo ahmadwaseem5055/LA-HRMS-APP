@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -7,7 +8,64 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final profile = userData['profile'] ?? {};
+    // Handle base64 image - your API seems to provide double-encoded base64
+    Widget profileWidget = const Icon(
+      Icons.person,
+      size: 60,
+      color: Colors.white,
+    );
+
+    if (userData['image'] != null && userData['image'].isNotEmpty) {
+      try {
+        String imageData = userData['image'].toString();
+        
+        // First decode to get the actual base64 image data
+        String decodedImageData = utf8.decode(base64Decode(imageData));
+        
+        // Check if it's an SVG (common for profile images)
+        if (decodedImageData.contains('<svg')) {
+          // For SVG, we'll show the default icon since flutter doesn't support SVG natively
+          print("🔹 SVG image detected, using default icon");
+          profileWidget = const Icon(
+            Icons.person,
+            size: 60,
+            color: Colors.white,
+          );
+        } else {
+          // Try to extract base64 image data if it's embedded
+          RegExp base64Pattern = RegExp(r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)');
+          Match? match = base64Pattern.firstMatch(decodedImageData);
+          
+          if (match != null) {
+            String actualImageBase64 = match.group(1)!;
+            profileWidget = ClipRRect(
+              borderRadius: BorderRadius.circular(60),
+              child: Image.memory(
+                base64Decode(actualImageBase64),
+                width: 120,
+                height: 120,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  print("❌ Error displaying image: $error");
+                  return const Icon(
+                    Icons.person,
+                    size: 60,
+                    color: Colors.white,
+                  );
+                },
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        print("❌ Error processing image: $e");
+        profileWidget = const Icon(
+          Icons.person,
+          size: 60,
+          color: Colors.white,
+        );
+      }
+    }
     
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -33,11 +91,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(
-              Icons.person,
-              size: 60,
-              color: Colors.white,
-            ),
+            child: profileWidget,
           ),
           
           const SizedBox(height: 30),
@@ -58,32 +112,34 @@ class ProfileScreen extends StatelessWidget {
           _buildInfoCard(
             icon: Icons.email,
             title: 'Email',
-            value: profile['work_email'] ?? 'N/A',
+            value: userData['email'] ?? 'N/A',
           ),
           
           _buildInfoCard(
             icon: Icons.work,
-            title: 'Designation',
-            value: profile['job_title'] ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.business,
             title: 'Department',
-            value: profile['department'] ?? 'N/A',
+            value: userData['department'] ?? 'N/A',
           ),
           
           _buildInfoCard(
             icon: Icons.phone,
-            title: 'Phone',
-            value: profile['phone'] ?? 'N/A',
+            title: 'Mobile',
+            value: userData['mobile'] ?? 'N/A',
           ),
           
           _buildInfoCard(
-            icon: Icons.location_on,
-            title: 'Location',
-            value: profile['office_location'] ?? 'N/A',
+            icon: Icons.business,
+            title: 'Company',
+            value: userData['company'] ?? 'N/A',
           ),
+          
+          // Additional info card for success status (optional)
+          if (userData['success'] == true)
+            _buildInfoCard(
+              icon: Icons.verified,
+              title: 'Status',
+              value: 'Verified Account',
+            ),
         ],
       ),
     );
