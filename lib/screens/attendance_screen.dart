@@ -49,7 +49,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       final localAttendanceId = prefs.getInt('${userKey}_attendanceId');
       final localDate = prefs.getString('${userKey}_date') ?? '';
 
-      final today = DateTime.now().toIso8601String().split('T')[0];
+      final today = _getTodayDateString();
 
       if (localDate == today) {
         setState(() {
@@ -70,7 +70,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userKey = 'attendance_user_$employeeId';
-      final today = DateTime.now().toIso8601String().split('T')[0];
+      final today = _getTodayDateString();
 
       await prefs.setBool('${userKey}_isCheckedIn', isCheckedIn);
       await prefs.setString('${userKey}_checkInTime', checkInTime);
@@ -107,6 +107,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  // Helper method to get today's date string in Pakistan Time
+  String _getTodayDateString() {
+    final now = DateTime.now().toUtc().add(const Duration(hours: 5));
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _syncWithApi(int employeeId) async {
     try {
       final todayResult = await attendanceApi.getTodayAttendance(employeeId);
@@ -119,32 +125,46 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           final apiCheckOutTime = attendanceData['check_out'] ?? attendanceData['check_out_time'];
           final apiAttendanceId = attendanceData['attendance_id'] ?? attendanceData['id'];
 
-          bool apiIsCheckedIn = apiCheckOutTime == null;
-          bool needsUpdate = false;
+          final today = _getTodayDateString();
+          String? apiDateString;
 
-          if (apiCheckInTime != null && checkInTime == '--:--') {
-            setState(() {
-              checkInTime = _formatTimeFromApi(apiCheckInTime);
-              isCheckedIn = apiIsCheckedIn;
-              currentAttendanceId = apiAttendanceId;
-            });
-            needsUpdate = true;
+          if (apiCheckInTime != null) {
+            try {
+              final apiDate = DateTime.parse(apiCheckInTime).toUtc().add(const Duration(hours: 5));
+              apiDateString = '${apiDate.year}-${apiDate.month.toString().padLeft(2, '0')}-${apiDate.day.toString().padLeft(2, '0')}';
+            } catch (e) {
+              debugPrint('Error parsing API date: $e');
+            }
           }
 
-          if (apiCheckOutTime != null && checkOutTime == '--:--') {
-            setState(() {
-              checkOutTime = _formatTimeFromApi(apiCheckOutTime);
-              isCheckedIn = false;
-            });
-            needsUpdate = true;
-          }
+          if (apiDateString == today) {
+            bool apiIsCheckedIn = apiCheckOutTime == null;
+            bool needsUpdate = false;
 
-          if (needsUpdate) {
-            await _saveLocalAttendanceState(employeeId);
+            if (apiCheckInTime != null && checkInTime == '--:--') {
+              setState(() {
+                checkInTime = _formatTimeFromApi(apiCheckInTime);
+                isCheckedIn = apiIsCheckedIn;
+                currentAttendanceId = apiAttendanceId;
+              });
+              needsUpdate = true;
+            }
+
+            if (apiCheckOutTime != null && checkOutTime == '--:--') {
+              setState(() {
+                checkOutTime = _formatTimeFromApi(apiCheckOutTime);
+                isCheckedIn = false;
+              });
+              needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+              await _saveLocalAttendanceState(employeeId);
+            }
+          } else {
+            await _clearLocalAttendanceState(employeeId);
           }
         }
-      } else {
-        // keep local
       }
     } catch (e) {
       debugPrint('Error syncing with API: $e');
@@ -181,7 +201,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       Map<String, dynamic>? result;
 
       if (!isCheckedIn && checkOutTime == '--:--') {
-        // Check in
+        final currentStatus = await attendanceApi.getCurrentAttendanceStatus(employeeId);
+        if (currentStatus != null && currentStatus['success'] == true) {
+          final statusData = currentStatus['data'];
+          if (statusData != null && statusData['is_checked_in'] == true) {
+            _showErrorDialog('You are already checked in. Please check out first.');
+            setState(() {
+              isLoading = false;
+            });
+            return;
+          }
+        }
+
         result = await attendanceApi.checkIn(employeeId);
 
         if (result != null && result['status'] == 'success') {
@@ -201,7 +232,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           _showErrorDialog(errorMessage);
         }
       } else if (isCheckedIn && checkOutTime == '--:--') {
-        // Check out
+        if (currentAttendanceId == null) {
+          _showErrorDialog('No active attendance found. Please check in first.');
+          setState(() {
+            isLoading = false;
+          });
+          return;
+        }
+
         result = await attendanceApi.checkOut(employeeId);
 
         if (result != null && result['status'] == 'success') {
@@ -229,16 +267,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  // UPDATED: Converts all API timestamps to Pakistan Time correctly
   String _formatTimeFromApi(String apiTime) {
     try {
-      DateTime dateTime = DateTime.parse(apiTime).toLocal();
-      final hour = dateTime.hour > 12 ? dateTime.hour - 12 : (dateTime.hour == 0 ? 12 : dateTime.hour);
-      final minute = dateTime.minute.toString().padLeft(2, '0');
-      final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+      DateTime dateTime = DateTime.parse(apiTime).toUtc().add(const Duration(hours: 5));
+      int hour = dateTime.hour % 12;
+      if (hour == 0) hour = 12;
+      String minute = dateTime.minute.toString().padLeft(2, '0');
+      String period = dateTime.hour >= 12 ? 'PM' : 'AM';
       return '$hour:$minute $period';
     } catch (e) {
       debugPrint('Error formatting API time: $e');
-      return apiTime.length > 19 ? apiTime.substring(11, 19) : apiTime;
+      if (apiTime.contains('T') && apiTime.length > 16) {
+        try {
+          return apiTime.substring(11, 16);
+        } catch (e2) {
+          debugPrint('Error extracting time part: $e2');
+        }
+      }
+      return apiTime;
     }
   }
 
@@ -247,9 +294,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           title: Text(title),
           content: Text(message),
           actions: [
@@ -257,9 +302,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF667eea),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('OK'),
@@ -275,9 +318,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           title: const Text('Error'),
           content: Text(message),
           actions: [
@@ -285,9 +326,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('OK'),
@@ -317,17 +356,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          // Today's Status Card
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(25),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: checkOutTime != '--:--'
-                    ? [const Color(0xFF4CAF50), const Color(0xFF8BC34A)] // Completed
+                    ? [const Color(0xFF4CAF50), const Color(0xFF8BC34A)]
                     : (isCheckedIn
-                        ? [const Color(0xFF56ab2f), const Color(0xFFa8e6cf)] // Checked In
-                        : [const Color(0xFFff9a9e), const Color(0xFFfecfef)]), // Not checked in
+                        ? [const Color(0xFF56ab2f), const Color(0xFFa8e6cf)]
+                        : [const Color(0xFFff9a9e), const Color(0xFFfecfef)]),
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
@@ -368,7 +406,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ],
                 ),
                 const SizedBox(height: 25),
-                // Check In/Out Button
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -403,7 +440,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          // Weekly Summary Card
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -443,7 +479,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          // Attendance History
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -554,7 +589,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ✅ This was missing before
   Widget _buildAttendanceItem(String date, String time, Color color) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
