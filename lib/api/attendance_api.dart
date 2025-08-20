@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AttendanceApi {
-  final String baseUrl = "https://lahoreanalytica-la1-uat-20891347.dev.odoo.com";
+  final String baseUrl = "https://lahoreanalytica-la1.odoo.com";
 
   Future<Map<String, dynamic>?> checkIn(int employeeId) async {
     // Create the URL for check-in with date parameter to ensure server-side date validation

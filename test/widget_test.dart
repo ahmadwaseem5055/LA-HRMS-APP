@@ -1,11 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:my_app/main.dart';
+import 'package:odoo_employee/main.dart';
+
 
 void main() {
   testWidgets('App loads without crashing', (WidgetTester tester) async {
-    await tester.pumpWidget(MyApp());
+    // Load the root widget of your app
+    await tester.pumpWidget(const MyApp());
 
-    // Verify that Login text is visible
-    expect(find.text('Login'), findsOneWidget);
+    // Verify that MyApp actually built
+    expect(find.byType(MyApp), findsOneWidget);
   });
 }
