@@ -31,12 +31,11 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-# Ignore everything in build
-/build/*
+/build/
+.dart_tool/
+.pub-cache/
+.env*
 
-# Allow only Flutter web build
-!/build/web/
-!/build/web/**
 
 # Symbolication related
 app.*.symbols
