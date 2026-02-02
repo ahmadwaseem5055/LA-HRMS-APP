@@ -4,7 +4,6 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -49,8 +48,13 @@ android {
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
+            
+            // ✅ Disable code minification (fix login issues in release)
             isMinifyEnabled = false
             isShrinkResources = false
+
+            // Optional: If you want debug logging in release, you can set
+            // isDebuggable = true
         }
     }
 }

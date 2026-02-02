@@ -1,208 +1,352 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
+import '../services/storage_service.dart';
 
-class ProfileScreen extends StatelessWidget {
-  final Map<String, dynamic> userData;
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
 
-  const ProfileScreen({Key? key, required this.userData}) : super(key: key);
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isLoading = true;
+  String? _appKey;
+  int? _employeeId;
+  
+  String? _employeeName;
+  String? _email;
+  String? _department;
+  String? _mobile;
+  String? _company;
+  String? _jobTitle;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    _appKey = await StorageService.getAppKey();
+    _employeeId = await StorageService.getEmployeeId();
+    _employeeName = await StorageService.getEmployeeName();
+    _email = await StorageService.getEmployeeEmail();
+    _department = await StorageService.getDepartment();
+    _company = await StorageService.getCompany();
+    _jobTitle = await StorageService.getJobPosition();
+    
+    setState(() => _isLoading = false);
+  }
+
+  String _getInitials(String? name) {
+    if (name == null || name.isEmpty) return 'E';
+    
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return name[0].toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Handle base64 image - your API seems to provide double-encoded base64
-    Widget profileWidget = const Icon(
-      Icons.person,
-      size: 60,
-      color: Colors.white,
-    );
+    final size = MediaQuery.of(context).size;
+    final isWeb = size.width > 900;
+    final isTablet = size.width > 600 && size.width <= 900;
 
-    if (userData['image'] != null && userData['image'].isNotEmpty) {
-      try {
-        String imageData = userData['image'].toString();
-        
-        // First decode to get the actual base64 image data
-        String decodedImageData = utf8.decode(base64Decode(imageData));
-        
-        // Check if it's an SVG (common for profile images)
-        if (decodedImageData.contains('<svg')) {
-          // For SVG, we'll show the default icon since flutter doesn't support SVG natively
-          print("🔹 SVG image detected, using default icon");
-          profileWidget = const Icon(
-            Icons.person,
-            size: 60,
-            color: Colors.white,
-          );
-        } else {
-          // Try to extract base64 image data if it's embedded
-          RegExp base64Pattern = RegExp(r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)');
-          Match? match = base64Pattern.firstMatch(decodedImageData);
-          
-          if (match != null) {
-            String actualImageBase64 = match.group(1)!;
-            profileWidget = ClipRRect(
-              borderRadius: BorderRadius.circular(60),
-              child: Image.memory(
-                base64Decode(actualImageBase64),
-                width: 120,
-                height: 120,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  print("❌ Error displaying image: $error");
-                  return const Icon(
-                    Icons.person,
-                    size: 60,
-                    color: Colors.white,
-                  );
-                },
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        print("❌ Error processing image: $e");
-        profileWidget = const Icon(
-          Icons.person,
-          size: 60,
-          color: Colors.white,
-        );
-      }
-    }
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          
-          // Profile Picture
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-              ),
-              borderRadius: BorderRadius.circular(60),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.3),
-                  spreadRadius: 2,
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  expandedHeight: isWeb ? 300 : (isTablet ? 250 : 200),
+                  pinned: true,
+                  backgroundColor: Colors.blue.shade700,
+                  foregroundColor: Colors.white,
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.blue.shade700,
+                            Colors.blue.shade900,
+                          ],
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(height: isWeb ? 60 : (isTablet ? 50 : 40)),
+                            Container(
+                              width: isWeb ? 140 : (isTablet ? 120 : 100),
+                              height: isWeb ? 140 : (isTablet ? 120 : 100),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 20,
+                                    spreadRadius: 5,
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  _getInitials(_employeeName),
+                                  style: TextStyle(
+                                    fontSize: isWeb ? 56 : (isTablet ? 48 : 40),
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: isWeb ? 20 : (isTablet ? 16 : 12)),
+                            Text(
+                              _employeeName ?? 'Employee',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isWeb ? 32 : (isTablet ? 28 : 24),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _jobTitle ?? _department ?? '',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: isWeb ? 20 : (isTablet ? 18 : 16),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: Container(
+                      constraints: BoxConstraints(
+                        maxWidth: isWeb ? 1200 : double.infinity,
+                      ),
+                      padding: EdgeInsets.all(isWeb ? 40 : (isTablet ? 32 : 16)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Personal Information',
+                            style: TextStyle(
+                              fontSize: isWeb ? 28 : (isTablet ? 24 : 20),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: isWeb ? 24 : (isTablet ? 20 : 16)),
+                          
+                          _buildPersonalInfoGrid(isWeb, isTablet),
+                          
+                          SizedBox(height: isWeb ? 40 : (isTablet ? 32 : 24)),
+                          SizedBox(
+                            width: double.infinity,
+                            height: isWeb ? 60 : (isTablet ? 56 : 50),
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    title: const Text('Logout'),
+                                    content: const Text('Are you sure you want to logout?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, true),
+                                        child: const Text(
+                                          'Logout',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirm == true) {
+                                  await StorageService.logout();
+                                  if (!mounted) return;
+                                  Navigator.of(context).pushNamedAndRemoveUntil(
+                                    '/login',
+                                    (route) => false,
+                                  );
+                                }
+                              },
+                              icon: Icon(Icons.logout, size: isWeb ? 24 : 20),
+                              label: Text(
+                                'Logout',
+                                style: TextStyle(
+                                  fontSize: isWeb ? 20 : (isTablet ? 18 : 16),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade600,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: isWeb ? 24 : (isTablet ? 20 : 16)),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-            child: profileWidget,
-          ),
-          
-          const SizedBox(height: 30),
-          
-          // Profile Info Cards
-          _buildInfoCard(
-            icon: Icons.badge,
-            title: 'Employee ID',
-            value: userData['employee_id']?.toString() ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.person,
-            title: 'Name',
-            value: userData['employee_name'] ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.email,
-            title: 'Email',
-            value: userData['email'] ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.work,
-            title: 'Department',
-            value: userData['department'] ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.phone,
-            title: 'Mobile',
-            value: userData['mobile'] ?? 'N/A',
-          ),
-          
-          _buildInfoCard(
-            icon: Icons.business,
-            title: 'Company',
-            value: userData['company'] ?? 'N/A',
-          ),
-          
-          // Additional info card for success status (optional)
-          if (userData['success'] == true)
-            _buildInfoCard(
-              icon: Icons.verified,
-              title: 'Status',
-              value: 'Verified Account',
-            ),
-        ],
-      ),
     );
   }
 
-  Widget _buildInfoCard({required IconData icon, required String title, required String value}) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 15),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 2,
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+  Widget _buildPersonalInfoGrid(bool isWeb, bool isTablet) {
+    final infoItems = [
+      {
+        'icon': Icons.email,
+        'label': 'Email',
+        'value': _email ?? 'N/A',
+        'color': Colors.blue,
+      },
+      {
+        'icon': Icons.business,
+        'label': 'Department',
+        'value': _department ?? 'N/A',
+        'color': Colors.purple,
+      },
+      {
+        'icon': Icons.business_center,
+        'label': 'Company',
+        'value': _company ?? 'N/A',
+        'color': Colors.orange,
+      },
+      {
+        'icon': Icons.work,
+        'label': 'Job Position',
+        'value': _jobTitle ?? 'N/A',
+        'color': Colors.green,
+      },
+    ];
+
+    if (isWeb || isTablet) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: isWeb ? 20 : 16,
+          crossAxisSpacing: isWeb ? 20 : 16,
+          childAspectRatio: isWeb ? 3 : 2.5,
+        ),
+        itemCount: infoItems.length,
+        itemBuilder: (context, index) {
+          final item = infoItems[index];
+          return _buildInfoCard(
+            icon: item['icon'] as IconData,
+            label: item['label'] as String,
+            value: item['value'] as String,
+            color: item['color'] as Color,
+            isWeb: isWeb,
+            isTablet: isTablet,
+          );
+        },
+      );
+    } else {
+      return Column(
+        children: infoItems.map((item) {
+          return _buildInfoCard(
+            icon: item['icon'] as IconData,
+            label: item['label'] as String,
+            value: item['value'] as String,
+            color: item['color'] as Color,
+            isWeb: isWeb,
+            isTablet: isTablet,
+          );
+        }).toList(),
+      );
+    }
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    required bool isWeb,
+    required bool isTablet,
+  }) {
+    return Card(
+      margin: EdgeInsets.only(bottom: (isWeb || isTablet) ? 0 : 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: const Color(0xFF667eea).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(25),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: isWeb ? 24 : (isTablet ? 20 : 16),
+          vertical: isWeb ? 20 : (isTablet ? 18 : 12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(isWeb ? 14 : (isTablet ? 12 : 10)),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: isWeb ? 32 : (isTablet ? 28 : 24),
+              ),
             ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF667eea),
-              size: 25,
-            ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+            SizedBox(width: isWeb ? 20 : (isTablet ? 16 : 12)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: isWeb ? 15 : (isTablet ? 14 : 12),
+                      color: Colors.grey.shade600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Color(0xFF333333),
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: isWeb ? 20 : (isTablet ? 18 : 16),
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
