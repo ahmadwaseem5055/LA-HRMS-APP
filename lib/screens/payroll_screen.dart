@@ -586,7 +586,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
               ),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }

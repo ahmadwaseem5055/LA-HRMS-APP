@@ -69,8 +69,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     int present = 0, absent = 0, leave = 0;
     for (var shift in _shifts) {
       final status = (shift['status'] ?? '').toString().toLowerCase();
-      if (status == 'present') present++;
-      else if (status == 'absent') absent++;
+      if (status == 'present') {
+        present++;
+      } else if (status == 'absent') absent++;
       else if (status == 'leave') leave++;
     }
     return {'present': present, 'absent': absent, 'leave': leave};

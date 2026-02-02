@@ -463,7 +463,7 @@ class _ApplyLeaveFormState extends State<ApplyLeaveForm> {
             ),
             const SizedBox(height: 20),
             DropdownButtonFormField<int>(
-              value: _selectedLeaveTypeId,
+              initialValue: _selectedLeaveTypeId,
               decoration: InputDecoration(
                 labelText: 'Leave Type',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
